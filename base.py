@@ -8,6 +8,8 @@ class TreeNode:
     def __repr__(self):
         return string_equation(str_form(self))
     def __eq__(self, other):
+        if type(self) != type(other):
+            return False
         return str_form(self)==str_form(other)
     def __add__(self, other):
         return TreeNode("f_add", [self,other])
@@ -60,12 +62,18 @@ def tree_form(tabbed_strings):
 def string_equation_helper(equation_tree):
     if equation_tree.children == []:
         return equation_tree.name
+    extra = ""
+    
+    if equation_tree.name.count("=") == 1:
+        extra += "["+equation_tree.name[-1]+"]"
+        
+        equation_tree.name = equation_tree.name[:3]
     if equation_tree.name == "f_list":
         return "["+",".join([string_equation_helper(child) for child in equation_tree.children])+"]"
     s = "(" 
-    if len(equation_tree.children) == 1 or equation_tree.name in ["f_int"]:
+    if len(equation_tree.children) == 1 or equation_tree.name[2:] in [chr(ord("A")+i) for i in range(26)]+["int", "pdif", "dif", "A", "B", "C", "covariance"]:
         s = equation_tree.name[2:] + s
-    sign = {"f_gt":">", "f_cosec":"?" , "f_equiv": "<->", "f_sec":"?", "f_cot": "?", "f_circumcenter":"?", "f_transpose":"?", "f_exp":"?", "f_abs":"?", "f_log":"?", "f_and":"&", "f_or":"|", "f_sub":"-", "f_neg":"?", "f_inv":"?", "f_add": "+", "f_mul": "*", "f_pow": "^", "f_poly": ",", "f_div": "/", "f_sub": "-", "f_dif": "?", "f_sin": "?", "f_cos": "?", "f_tan": "?", "f_eq": "=", "f_sqt": "?"}
+    sign = {"f_covariance": ",", "f_ge":">=", "f_le":"<=", "f_gt":">", "f_lt":"<", "f_cosec":"?" , "f_equiv": "<->", "f_sec":"?", "f_cot": "?", "f_dot": ".", "f_circumcenter":"?", "f_transpose":"?", "f_exp":"?", "f_abs":"?", "f_log":"?", "f_and":"&", "f_or":"|", "f_sub":"-", "f_neg":"?", "f_inv":"?", "f_add": "+", "f_mul": "*", "f_pow": "^", "f_poly": ",", "f_div": "/", "f_sub": "-", "f_dif": ",", "f_sin": "?", "f_cos": "?", "f_tan": "?", "f_eq": "=", "f_sqt": "?"}
     arr = []
     k = None
     if equation_tree.name not in sign.keys():
@@ -74,15 +82,29 @@ def string_equation_helper(equation_tree):
         k = sign[equation_tree.name]
     for child in equation_tree.children:
         arr.append(string_equation_helper(copy.deepcopy(child)))
-    return s + k.join(arr) + ")"
+    return s + k.join(arr) + ")"+extra
 def string_equation(eq):
+    
     alpha = ["x", "y", "z"]+[chr(x+ord("a")) for x in range(0,23)]
     eq = tree_form(eq)
+    def rfx(eq):
+        if eq.name[:2] == "f_" and eq.name[2:3] in [str(i) for i in range(26)]:
+            string = ""
+            if eq.name.count("=") == 1:
+                string += "="+eq.name[-1]
+            return TreeNode("f_"+chr(int(eq.name[2:3])+ord("A"))+string, eq.children)
+        return TreeNode(eq.name, [rfx(child) for child in eq.children])
+    
+    eq = rfx(eq)
     for i, letter in enumerate(alpha):
         eq = replace(eq, tree_form("v_"+str(i)), tree_form(letter))
+    for i in range(100, 150):
+        eq = replace(eq, tree_form("v_"+str(i)), tree_form("c"+str(i-100)))
     eq = str_form(eq)
+    
     eq = eq.replace("d_", "")
     eq = eq.replace("s_", "")
     eq = eq.replace("v_", "")
     eq = eq.replace("'", "")
+    
     return string_equation_helper(tree_form(eq))
