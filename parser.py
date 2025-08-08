@@ -62,11 +62,13 @@ grammar = """?start: expr
      | "[" [expr ("," expr)*] "]" -> list
      | "(" expr ")"        -> paren
      | CNUMBER             -> cnumber
+     | ESCAPED_STRING      -> string
 ?index: "[" expr "]"     -> index
-FUNC_NAME: "midpoint" | "sum" | "sum2" | "F" | "W" | "V" | "equationrhs" | "transpose" | "equationlhs" | "equation" | "error" | "covariance" | "variance" | "expect" | "A" | "B" | "C" | "mag" | "rad" | "laplace" | "diverge" | "pdif" | "gradient" | "curl" | "point1" | "point2" | "dot" | "point3" | "line1" | "line2" | "line3" | "sin" | "circumcenter" | "eqtri" | "linesegment" | "cos" | "tan" | "log" | "sqrt" | "integrate" | "dif" | "abs" | "transpose" | "cosec" | "sec" | "cot" | "arctan" | "arcsin" | "arccos" | "log10"
-VARIABLE: /[a-z]/ | "nabla"
+FUNC_NAME: "midpoint" | "sum" | "angle" | "line" | "sum2" | "charge" | "electricfield" | "point" | "F" | "W" | "V" | "equationrhs" | "transpose" | "equationlhs" | "equation" | "error" | "covariance" | "variance" | "expect" | "A" | "B" | "C" | "mag" | "rad" | "laplace" | "diverge" | "pdif" | "gradient" | "curl" | "point1" | "point2" | "dot" | "point3" | "line1" | "line2" | "line3" | "sin" | "circumcenter" | "eqtri" | "linesegment" | "cos" | "tan" | "log" | "sqrt" | "integrate" | "dif" | "abs" | "transpose" | "cosec" | "sec" | "cot" | "arctan" | "arcsin" | "arccos" | "log10"
+VARIABLE: /[a-z]/ | "nabla" | "pi" | /[A-Z]{2}/ | "kc" | "hbar" | "em" | "ec" | "anot"
 CNUMBER: /c[0-9]+/
 %import common.NUMBER
+%import common.ESCAPED_STRING
 %import common.WS_INLINE
 %ignore WS_INLINE"""
 
@@ -93,7 +95,7 @@ def take_input(equation, funclist=None):
               return TreeNode(str(tree))
       return tree_to_treenode(parse_tree)
   def remove_past(equation):
-      if equation.name in {"number", "paren", "func", "variable", "cnumber"}:
+      if equation.name in {"number", "paren", "func", "variable", "cnumber", "string"}:
           if len(equation.children) == 1:
             for index, child in enumerate(equation.children):
               equation.children[index] = remove_past(child)
@@ -118,6 +120,7 @@ def take_input(equation, funclist=None):
       return TreeNode(equation.name, [prefixindex(child) for child in equation.children])
   tree_node = convert_to_treenode(parse_tree)
   tree_node = remove_past(tree_node)
+  
   tree_node = prefixindex(tree_node)
   
   def fxchange(tree_node):
@@ -125,15 +128,24 @@ def take_input(equation, funclist=None):
     tmp3 = []
     if funclist is not None:
         tmp3 = funclist
-    return TreeNode("f_"+tree_node.name if tree_node.name in tmp3+["sum", "sum2", "V", "W", "transpose", "equationrhs", "equationlhs", "equation", "covariance", "variance", "expect", "error", "laplace", "dot", "curl", "pdif", "diverge", "gradient", "rad", "ge", "le", "gt", "lt", "F", "rad", "eqtri", "linesegment", "midpoint", "mag", "point1", "point2", "point3", "line1", "line2", "line3", "log10", "arcsin", "arccos", "arctan", "list", "cosec", "sec", "cot", "equiv", "or", "not", "and", "circumcenter", "transpose", "eq", "sub", "neg", "inv", "add", "sin", "cos", "tan", "mul", "integrate", "dif", "pow", "div", "log", "abs"]\
+    return TreeNode("f_"+tree_node.name if tree_node.name in tmp3+["angle", "charge", "electricfield", "line", "point", "sum", "sum2", "V", "W", "transpose", "equationrhs", "equationlhs", "equation", "covariance", "variance", "expect", "error", "laplace", "dot", "curl", "pdif", "diverge", "gradient", "rad", "ge", "le", "gt", "lt", "F", "rad", "eqtri", "linesegment", "midpoint", "mag", "point1", "point2", "point3", "line1", "line2", "line3", "log10", "arcsin", "arccos", "arctan", "list", "cosec", "sec", "cot", "equiv", "or", "not", "and", "circumcenter", "transpose", "eq", "sub", "neg", "inv", "add", "sin", "cos", "tan", "mul", "integrate", "dif", "pow", "div", "log", "abs"]\
                     else "d_"+tree_node.name, [fxchange(child) for child in tree_node.children])
   tree_node = fxchange(tree_node)
   tree_node = replace(tree_node, tree_form("d_e"), tree_form("s_e"))
   tree_node = replace(tree_node, tree_form("d_pi"), tree_form("s_pi"))
+  tree_node = replace(tree_node, tree_form("d_kc"), tree_form("s_kc"))
+  tree_node = replace(tree_node, tree_form("d_em"), tree_form("s_em"))
+  tree_node = replace(tree_node, tree_form("d_ec"), tree_form("s_ec"))
+  tree_node = replace(tree_node, tree_form("d_anot"), tree_form("s_anot"))
+  tree_node = replace(tree_node, tree_form("d_hbar"), tree_form("s_hbar"))
   tree_node = replace(tree_node, tree_form("d_i"), tree_form("s_i"))
   tree_node = replace(tree_node, tree_form("d_nabla"), tree_form("s_nabla"))
 
   def rfx(tree_node):
+      if tree_node.name == "f_line":
+          return TreeNode("f_line", [tree_form("g_"+tree_node.children[0].name.replace('d_', '').replace('"', ''))])
+      if tree_node.name == "f_angle":
+          return TreeNode("f_angle", [tree_form("g_"+tree_node.children[0].name.replace('d_', '').replace('"', ''))])
       if tree_node.name[:2] == "d_" and tree_node.name[2:3] in ["A", "B", "C"]:
           out = "f_"+str(ord(tree_node.name[2:3])-ord("A"))
           if tree_node.name.count("=") == 1:
