@@ -3,38 +3,97 @@ class TreeNode:
     def __init__(self, name, children=None):
         self.name = name
         self.children = children or []
+
     def fx(self, fxname):
-        return TreeNode("f_"+fxname, [self])
+        return TreeNode("f_" + fxname, [self])
+
     def __repr__(self):
         return string_equation(str_form(self))
+
     def __eq__(self, other):
-        if type(self) != type(other):
-            return False
-        return str_form(self)==str_form(other)
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        elif not isinstance(other, TreeNode):
+            return NotImplemented
+        return str_form(self) == str_form(other)
+
     def __add__(self, other):
-        return TreeNode("f_add", [self,other])
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_add", [self, other])
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
     def __mul__(self, other):
-        return TreeNode("f_mul", [self,other])
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_mul", [self, other])
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
     def __sub__(self, other):
-        return self + other * tree_form("d_-1")
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return self + (tree_form("d_-1") * other)
+
+    def __rsub__(self, other):
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return other + (tree_form("d_-1") * self)
+
     def __pow__(self, other):
-        return TreeNode("f_pow", [self,other])
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_pow", [self, other])
+
+    def __rpow__(self, other):
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_pow", [other, self])
+
     def __truediv__(self, other):
-        return self * other ** tree_form("d_-1")
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return self * (other ** tree_form("d_-1"))
+
+    def __rtruediv__(self, other):
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return other * (self ** tree_form("d_-1"))
+
     def __and__(self, other):
-        return TreeNode("f_and", [self,other])
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_and", [self, other])
+
+    def __rand__(self, other):
+        return self.__and__(other)
+
     def __or__(self, other):
-        return TreeNode("f_or", [self,other])
+        if isinstance(other, int):
+            other = tree_form("d_" + str(other))
+        return TreeNode("f_or", [self, other])
+
+    def __ror__(self, other):
+        return self.__or__(other)
+
+    def __neg__(self):
+        return tree_form("d_-1") * self
+
     def __hash__(self):
         return hash(str_form(self))
-    def __neg__(self):
-        return tree_form("d_-1")*self
+
+    
 def str_form(node):
     def recursive_str(node, depth=0):
         result = "{}{}".format(' ' * depth, node.name)
         for child in node.children:
             result += "\n" + recursive_str(child, depth + 1)
         return result
+    if not isinstance(node, TreeNode):
+        return "d_"+str(node)
     return recursive_str(node)
 def replace(equation, find, r):
   if str_form(equation) == str_form(find):
@@ -61,6 +120,8 @@ def tree_form(tabbed_strings):
     return root.children[0]
 def string_equation_helper(equation_tree):
     if equation_tree.children == []:
+        if equation_tree.name[:2]=="g_":
+            return '"'+equation_tree.name[2:]+'"'
         return equation_tree.name
     extra = ""
     
