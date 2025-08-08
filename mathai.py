@@ -9,8 +9,17 @@ from base import *
 from fractions import Fraction
 import parser
 import math
+
 def plog(string):
     print(string.replace("None", "not found"))
+def flatten(nested):
+    result = []
+    for item in nested:
+        if isinstance(item, list):
+            result.extend(flatten(item))  # Recursively flatten
+        else:
+            result.append(item)
+    return result
 def varlist(eq):
     out = []
     if eq.name[:2] == "v_":
@@ -24,6 +33,16 @@ def compute(eq):
             return math.e
         elif eq.name == "s_pi":
             return math.pi
+        elif eq.name == "s_hbar":
+            return 1.054571817e-34  # Reduced Planck's constant (J·s)
+        elif eq.name == "s_em":
+            return 9.1093837015e-31  # Electron mass (kg)
+        elif eq.name == "s_ec":
+            return 1.602176634e-19  # Elementary charge (C)
+        elif eq.name == "s_anot":
+            return 5.29177210903e-11  # Bohr radius (m)
+        elif eq.name == "s_kc":
+            return 8.98755178736817681764e9  # Coulomb constant (N·m²/C²)
         return float(eq.name[2:])   
     values = [compute(child) for child in eq.children]
     try:
@@ -61,11 +80,11 @@ def compute(eq):
         ans =  math.atan(values[0])
     elif eq.name == "f_log":
         ans =  math.log(values[0])
-    
+    '''
     if isinstance(ans, float) and abs(ans) > 999999:
         
         x = 0/0
-    
+    '''
     return ans
 def intersection2(domain, lst):
     domain = copy.deepcopy(domain)
@@ -348,7 +367,7 @@ def simple(eq):
     global tosort
     if "f_list" in str_form(eq):
         return TreeNode(eq.name, [simple(copy.deepcopy(child)) for child in eq.children])
-    if (eq.name[:2] == "f_" and eq.name != "f_add") or eq.name[:2] in ["d_","v_","s_"]:
+    if (eq.name[:2] == "f_" and eq.name != "f_add") or eq.name[:2] in ["d_","v_","s_","g_"]:
         eq = copy.deepcopy(TreeNode("f_add", [eq]))
     if eq.name == "f_add":
         dic = {}
@@ -639,22 +658,31 @@ def powermerge(eq):
                 if change:
                     break
     return TreeNode(eq.name, [powermerge(child) for child in eq.children])
+
 def inversehandle(eq):
-    if not hasattr(eq, "children") or not eq.children:
+    if not hasattr(eq, "children") or not eq.children or eq.children==[]:
         return eq
-    tmp = structure(copy.deepcopy(eq), tree_form('f_pow\n f_pow\n  u_0\n  u_1\n u_2'), {}.copy())
+    
+    tmp = structure(copy.deepcopy(eq), tree_form('f_pow\n f_pow\n  u_0\n  u_1\n u_2'))
+    
     if tmp is not None:
-        for key in tmp.keys():
-            tmp[key] = tree_form(tmp[key])
-        exponent = TreeNode("f_mul", [tmp["u_1"], tmp["u_2"]])
-        base = TreeNode("f_pow", [tmp["u_0"], exponent])
-        return inversehandle(base)
+        #if ("v_" not in tmp["u_0"] and compute(tree_form(tmp["u_0"])) <0) or\
+        if ("v_" not in tmp["u_2"] and not math.isclose(compute(tree_form(tmp["u_2"])), round(compute(tree_form(tmp["u_2"])))) ):
+            exponent = TreeNode("f_mul", [tree_form(tmp["u_1"]), tree_form(tmp["u_2"])])
+            base = TreeNode("f_pow", [tree_form(tmp["u_0"]).fx("abs"), exponent])
+            return inversehandle(base)
+        else:
+            exponent = TreeNode("f_mul", [tree_form(tmp["u_1"]), tree_form(tmp["u_2"])])
+            base = TreeNode("f_pow", [tree_form(tmp["u_0"]), exponent])
+            return inversehandle(base)
+    
     if eq.name == "f_pow" and eq.children[0].name == "f_mul":
         exponent = copy.deepcopy(eq.children[1])
         ans = TreeNode("f_mul", [])
         for child in eq.children[0].children:
             ans.children.append(copy.deepcopy(TreeNode("f_pow", [child, exponent])))
         return inversehandle(ans)
+    
     if eq.name == "f_log10":
         return inversehandle(eq.children[0].fx("log")/tree_form("d_10").fx("log"))
     if eq.name == "f_log" and eq.children[0].name == "s_e":
@@ -677,6 +705,7 @@ def inversehandle(eq):
         return inversehandle(eq2)
     if (eq.name == "f_arcsin" and eq.children[0].name == "f_sin") or (eq.name == "f_arccos" and eq.children[0].name == "f_cos") or (eq.name == "f_arctan" and eq.children[0].name == "f_tan"):
         return inversehandle(eq.children[0].children[0])
+    
     return TreeNode(eq.name, [flatten_tree(inversehandle(child)) for child in eq.children])
 def simplify(eq, lite=False):
     def iscont(a, b, c=None):
@@ -778,6 +807,7 @@ def dowhile(eq, fx, p=False):
 def solve2(eq):
     eq = copy.deepcopy(eq)
     for item in [convert_sub2neg, expand_eq, flatten_tree, inversehandle, powermerge, simplify]:
+    #for item in [convert_sub2neg, expand_eq, flatten_tree, powermerge, simplify]:
         eq = dowhile(eq, item)
     return eq
 def solve3(eq):
@@ -831,6 +861,7 @@ def factorgen(eq):
     return [copy.deepcopy(simplifylite(x)) for x in output]
 
 def sumgen(eq):
+    eq = tree_form(str_form(eq).replace("g_", "v_"))
     output = []
     if eq.name != "f_add":
         eq = TreeNode("f_add", [eq])
@@ -847,6 +878,8 @@ def sumgen(eq):
                             output.append(tree_form("d_-1")*term)
                         else:
                             output.append(term)
+                else:
+                    output.append(child)
             else:
                 output.append(child)
     return [copy.deepcopy(simplifylite(x)) for x in output]
@@ -1837,7 +1870,8 @@ def handle_intrec(special, equation):
         #return None
     return equation
 def varproc(term, var):
-    if diffx(term, var).name[:2] == "d_":
+    #if diffx(term, var).name[:2] == "d_":
+    if "v_" not in str_form(diffx(term, var)):
         return diffx(term, var)
     return None
 def integrate_for(eq, var):
@@ -2195,6 +2229,10 @@ def clearv(eq, varname=None):
         for i in range(len(arr)-1,-1,-1):
             if arr[i].name == "f_pow" and arr[i].children[1].name[:2] == "d_" and int(arr[i].children[1].name[2:]) < 0:
                 arr.pop(i)
+            elif arr[i].name == "f_pdif":
+                arr.pop(i)
+            elif arr[i].name == "f_dif":
+                arr.pop(i)
         m = arr[0]
         for item in arr[1:]:
             m = m * item
@@ -2233,17 +2271,61 @@ def convpdif(eq):
         dem = product(dem)
         out = [solve(child/dem) for child in eq.children[0].children]
         out2 = []
-        
+        print(out)
         for child in out:
             dd = [item for item in factorgen(child) if item.name == "f_pow" and item.children[1].name == "d_-1" and item.children[0].name == "f_pdif"]
             dd2 = [item for item in factorgen(child) if not (item.name == "f_pow" and item.children[1].name == "d_-1" and item.children[0].name == "f_pdif")]
+            print(dd, dd2)
             if set(varlist(product(dd))) <= set(varlist(product(dd2))):
                 out2.append(child)
             else:
                 pass
+        
         return clearv(solve(TreeNode("f_eq", [summation(out2), tree_form("d_0")])))
-
+def physics(eq):
+    if eq.name == "f_abs":
+        return eq.children[0]
+    return TreeNode(eq.name, [physics(child) for child in eq.children])
 def pdifsolve(eq):
+    for i in [0,-1]:
+        try:
+            lst = [parser.take_input("dif(A(x))*B(y)*pdif(x)/dif(x)"), parser.take_input("dif(B(y))*A(x)*pdif(y)/dif(y)")]
+            def rr(equ):
+                if equ == parser.take_input("pdif(z)"):
+                    return lst.pop(i)
+                if equ == parser.take_input("z"):
+                    return parser.take_input("A(x)*B(y)")
+                return TreeNode(equ.name, [rr(child) for child in equ.children])
+            eq2 = solve(rr(eq))
+            eq2 = fraction2(eq2)
+            eq2 = clearv(eq2)
+            eq2 = take_common2(eq2)
+            eq2 = clearv(eq2)
+            print(eq2)
+            eq2 = inversediff(eq2.children[0], eq2.children[1])
+            
+            a, b = eq2.children[0].children
+            if "v_0" in str_form(b):
+                a, b = b, a
+            
+            b = replace(b, tree_form("v_1"), tree_form("v_0"))
+            a = replace(a, parser.take_input("A(x)"), tree_form("v_1"))
+            b = replace(b, parser.take_input("B(x)"), tree_form("v_1"))
+            
+            a2 = copy.deepcopy(TreeNode("f_eq", [a-parser.take_input("k"), tree_form("d_0")]))
+            b2 = copy.deepcopy(TreeNode("f_eq", [b+parser.take_input("k"), tree_form("d_0")]))
+            a = diffsolve(a2)
+            b = diffsolve(b2)
+            a = physics(a)
+            b = physics(b)
+            a = inverse2(a.children[0], "v_1")
+            b = inverse2(b.children[0], "v_1")
+            b = replace(b, tree_form("v_0"), tree_form("v_1"))
+            c = expand3(solve(a*b))
+            print(c)
+            return
+        except:
+            pass
     eq2 = convpdif(eq)
     if eq.name == "f_eq" and eq.children[0].name == "f_add":
         eq = fraction2(eq)
@@ -2992,50 +3074,51 @@ def take_common(eq):
 def take_common2(eq):
     eq = take_common(eq)
     return TreeNode(eq.name, [take_common2(child) for child in eq.children])
+def inversediff(lhs, rhs):
+    count = 4
+    while contain(rhs, tree_form("v_1")) or contain(lhs, tree_form("v_0")):
+        success = False
+        if rhs.name == "f_add":
+            for i in range(len(rhs.children)-1,-1,-1):
+                if not contain(rhs.children[i], tree_form("v_0")) or str_form(tree_form("v_1").fx("dif")) in [str_form(x) for x in factorgen(rhs.children[i])]:
+                    if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
+                        success = True
+                    lhs = lhs - rhs.children[i]
+                    rhs.children.pop(i)
+        elif rhs.name == "f_mul":
+            for i in range(len(rhs.children)-1,-1,-1):
+                if not contain(rhs.children[i], tree_form("v_0")):
+                    if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
+                        success = True
+                    lhs = lhs / rhs.children[i]
+                    rhs.children.pop(i)
+        if len(rhs.children) == 1:
+            rhs = rhs.children[0]
+        rhs, lhs = copy.deepcopy([solve4(lhs), solve4(rhs)])
+        if rhs.name == "f_add":
+            for i in range(len(rhs.children)-1,-1,-1):
+                if not contain(rhs.children[i], tree_form("v_1")) or str_form(tree_form("v_0").fx("dif")) in [str_form(x) for x in factorgen(rhs.children[i])]:
+                    if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
+                        success = True
+                    lhs = lhs - rhs.children[i]
+                    rhs.children.pop(i)
+        elif rhs.name == "f_mul":
+            for i in range(len(rhs.children)-1,-1,-1):
+                if not contain(rhs.children[i], tree_form("v_1")):
+                    if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
+                        success = True
+                    lhs = lhs / rhs.children[i]
+                    rhs.children.pop(i)
+        rhs, lhs = copy.deepcopy([solve4(lhs), solve4(rhs)])
+        if not success:
+            lhs, rhs = term_common(lhs),term_common(rhs)
+        count -= 1
+        if count == 0:
+            return None
+    return solve4(e0(lhs-rhs))
 def diffsolve_sep(eq):
     eq = groupe(eq)
-    def inversediff(lhs, rhs):
-        count = 4
-        while contain(rhs, tree_form("v_1")) or contain(lhs, tree_form("v_0")):
-            success = False
-            if rhs.name == "f_add":
-                for i in range(len(rhs.children)-1,-1,-1):
-                    if not contain(rhs.children[i], tree_form("v_0")) or str_form(tree_form("v_1").fx("dif")) in [str_form(x) for x in factorgen(rhs.children[i])]:
-                        if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
-                            success = True
-                        lhs = lhs - rhs.children[i]
-                        rhs.children.pop(i)
-            elif rhs.name == "f_mul":
-                for i in range(len(rhs.children)-1,-1,-1):
-                    if not contain(rhs.children[i], tree_form("v_0")):
-                        if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
-                            success = True
-                        lhs = lhs / rhs.children[i]
-                        rhs.children.pop(i)
-            if len(rhs.children) == 1:
-                rhs = rhs.children[0]
-            rhs, lhs = copy.deepcopy([solve4(lhs), solve4(rhs)])
-            if rhs.name == "f_add":
-                for i in range(len(rhs.children)-1,-1,-1):
-                    if not contain(rhs.children[i], tree_form("v_1")) or str_form(tree_form("v_0").fx("dif")) in [str_form(x) for x in factorgen(rhs.children[i])]:
-                        if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
-                            success = True
-                        lhs = lhs - rhs.children[i]
-                        rhs.children.pop(i)
-            elif rhs.name == "f_mul":
-                for i in range(len(rhs.children)-1,-1,-1):
-                    if not contain(rhs.children[i], tree_form("v_1")):
-                        if contain(rhs.children[i], tree_form("v_0")) or contain(rhs.children[i], tree_form("v_1")):
-                            success = True
-                        lhs = lhs / rhs.children[i]
-                        rhs.children.pop(i)
-            rhs, lhs = copy.deepcopy([solve4(lhs), solve4(rhs)])
-            if not success:
-                lhs, rhs = term_common(lhs),term_common(rhs)
-            count -= 1
-            if count == 0:
-                return None
-        return solve4(e0(lhs-rhs))
+    
     plog(f"{'  '*tab}rewritting as {eq}")
     eq = inversediff(tree_form("d_0"), copy.deepcopy(eq.children[0]))
     plog(f"{'  '*tab}rearranged as {eq}")
@@ -3855,9 +3938,13 @@ def calcvec(eq):
                 a, b = [TreeNode("f_pdif", [item, tree_form("v_"+str(index))]) for index, item in enumerate([a,b])]
                 return a+b
         if eq.name in ["f_gradient", "f_laplace"] and eq.children[0].name == "f_list":
-            return conv2(summation([child.fx(eq.name[2:]) for child in eq.children]))
+            tmp = conv2(summation([child.fx(eq.name[2:]) for child in eq.children]))
+            print(tmp)
+            return tmp
         if eq.name in ["f_diverge", "f_laplace", "f_gradient"]:
+            
             if coordinate == "sphere":
+                
                 if eq.children[0].name == "f_mul":
                     lst2= factorgen(eq.children[0])
                     new = []
@@ -3912,13 +3999,84 @@ def calcvec(eq):
     for item in lst:
         eq2 = replace(eq2, item[0], item[1])
     return eq2
+
 def mul_abs(eq):
     if eq.name == "f_abs" and eq.children[0].name == "f_mul":
         return solve(product([item.fx("abs") for item in factorgen(eq.children[0])]))
     return TreeNode(eq.name, [mul_abs(child) for child in eq.children])
+
+ggg = """mode spherical
+(1/(pi * anot^3))^(1/2)
+physics
+equation(0)*e^(-1/anot * r)
+-(kc * ec^2)/r
+-hbar^2/(2*em)*laplace(equation(1))+equation(2)*equation(1)
+calcvec
+fraction
+expand
+equation(1)*equation(3)
+fraction
+expand
+equation(4)*4*pi*r^2
+fraction
+expand
+Sdr byparts 7
+-equation(5)
+replace r 0
+expand
+physics
+compute
+equation(1)^2*4*pi*r^2
+fraction
+expand
+Sdr byparts 7
+-equation(7)
+replace r 0
+expand
+physics
+compute
+(equation(6)/equation(8))/ec
+compute"""
+ggg = """mode spherical
+(1/(pi * anot^3))^(1/2)
+physics
+equation(0) * e^(-r / anot)
+-(kc * ec^2)/r
+-hbar^2/(2*em)*laplace(equation(1))+equation(2)*equation(1)
+calcvec
+fraction
+expand
+equation(1)*equation(3)
+fraction
+expand
+equation(4)*4*pi*r^2
+fraction
+expand
+Sdr byparts 7
+-equation(5)
+replace r 0
+expand
+physics
+compute"""
+ggg = """mode spherical
+(1/(pi * anot^3))^(1/2)
+equation(0)*e^(-1/anot * r)
+equation(1)^2*4*pi*r^2
+fraction
+expand
+Sdr byparts 7
+-equation(2)
+replace r 0
+expand
+physics
+fraction
+compute"""
+
+ggg = ggg.split("\n")
 history = []
 while cmd_mode and True:
     tmp = input(">>> ")
+    #tmp = ggg.pop(0)
     if True:
         orig = equation
         if tmp.split(" ")[0] == "solve":
@@ -3950,6 +4108,9 @@ while cmd_mode and True:
                 ra = wavy(equation)
                 
             print(ra)
+        elif tmp == "physics":
+            equation = physics(equation)
+            print(equation)
         elif tmp == "abs":
             equation = mul_abs(equation)
             
@@ -4101,7 +4262,13 @@ while cmd_mode and True:
             print(equation)
         elif tmp[:2] == "Sd":
             plog("THOUGHT PROCESS = \n")
-            var = {"x":"v_0", "y":"v_1", "z":"v_2", "c": "v_5"}[tmp[2]]
+            orig = None
+            if tmp[2] == "r":
+                orig = tmp[2]
+                equation = replace(equation, parser.take_input("r"), parser.take_input("x"))
+                var= "v_0"
+            else:
+                var = {"x":"v_0", "y":"v_1", "z":"v_2", "c": "v_5"}[tmp[2]]
             special = TreeNode("f_int", [equation, tree_form(var)])
             su, sp, bypart = True, False, False
             if "byparts" in tmp:
@@ -4124,6 +4291,8 @@ while cmd_mode and True:
                 print("failed to integrate")
             else:
                 equation = tmp2
+                if orig is not None:
+                    equation = replace(equation, parser.take_input("x"), parser.take_input("r"))
                 print(equation)
         elif tmp == "prime":
             equation = fraction4(equation)
@@ -4135,6 +4304,16 @@ while cmd_mode and True:
             out = intreg(out)
             variable[tmp.split(" ")[1]] = out
             print(out)
+        elif tmp == "matrix2":
+            eqlst = []
+            if equation.name == "f_eq" and equation.children[1].name == "d_0" and equation.children[0].name == "f_list":
+                for item in flatten(conv(equation.children[0])):
+                    if "v_" in str_form(item):
+                        eqlst.append(TreeNode("f_eq", [item, tree_form("d_0")]))
+            if len(eqlst) == 1:
+                equation = eqlst[0]
+            print(equation)
+                
         elif tmp == "matrix":
             if equation.name == "f_eq":
                 equation = copy.deepcopy(TreeNode(equation.name, [dowhile(equation.children[0], matrix_solve), tree_form("d_0")]))
@@ -4176,6 +4355,9 @@ while cmd_mode and True:
             print(f"limit {var}->{n} " + str(orig) + " = " + str(equation))
         elif tmp == "pform":
             equation = pform(equation)
+            print(equation)
+        elif tmp.split(" ")[0] == "replace":
+            equation = replace(equation, parser.take_input(tmp.split(" ")[1]), parser.take_input(tmp.split(" ")[2]))
             print(equation)
         elif tmp.split(" ")[0] == "intact":
             tmp = tmp.split(" ")[1]
