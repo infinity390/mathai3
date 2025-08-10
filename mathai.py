@@ -1,4 +1,4 @@
-cmd_mode = True
+cmd_mode = False
 
 import re
 from collections import Counter
@@ -4396,3 +4396,4 @@ while cmd_mode and True:
         equation = orig
         print(error)
     '''
+
