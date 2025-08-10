@@ -52,15 +52,14 @@ is_correct = simplify(differentiated_expr - expr_integration) == 0
 print(is_correct)  # True if d/dx ∫F(x)dx = F(x)
 ```
 
-Sympy output: ``` `x**3 + 3*x**2*y + 3*x**2*z + 3*x*y**2 + 6*x*y*z + 3*x*z**2 + y**3 + 3*y**2*z + 3*y*z**2 + z**3`
+Sympy output:<br> 
+``x**3 + 3*x**2*y + 3*x**2*z + 3*x*y**2 + 6*x*y*z + 3*x*z**2 + y**3 + 3*y**2*z + 3*y*z**2 + z**3``<br>
+``x**2/2 - cos(x)`` <br>
+``True`` <br>
 
-x**2/2 - cos(x)
-
-True``` <br>
-My Math Ai output: ```((3*(x^2)*y)+(3*(x^2)*z)+(3*(y^2)*x)+(3*(y^2)*z)+(3*(z^2)*x)+(3*(z^2)*y)+(6*x*y*z)+(x^3)+(y^3)+(z^3))
-
-((-1*cos(x))+((2^-1)*(x^2)))
-
-True```
+My Math Ai output: <br>
+``((3*(x^2)*y)+(3*(x^2)*z)+(3*(y^2)*x)+(3*(y^2)*z)+(3*(z^2)*x)+(3*(z^2)*y)+(6*x*y*z)+(x^3)+(y^3)+(z^3))`` <br>
+``((-1*cos(x))+((2^-1)*(x^2)))`` <br>
+``True`` <br>
 
 Run the main.py file for getting the Math Ai's output
