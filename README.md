@@ -1,4 +1,4 @@
-## Comparison: mathai vs. sympy Expansion
+## Comparison: mathai vs. sympy expansion
 
 This project demonstrates symbolic expansion using both the custom `mathai` library and the well-known `sympy` library.
 
