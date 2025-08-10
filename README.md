@@ -52,7 +52,7 @@ is_correct = simplify(differentiated_expr - expr_integration) == 0
 print(is_correct)  # True if d/dx ∫F(x)dx = F(x)
 ```
 
-Sympy output: ```x**3 + 3*x**2*y + 3*x**2*z + 3*x*y**2 + 6*x*y*z + 3*x*z**2 + y**3 + 3*y**2*z + 3*y*z**2 + z**3
+Sympy output: ``` `x**3 + 3*x**2*y + 3*x**2*z + 3*x*y**2 + 6*x*y*z + 3*x*z**2 + y**3 + 3*y**2*z + 3*y*z**2 + z**3`
 
 x**2/2 - cos(x)
 
