@@ -164,16 +164,19 @@ def intersection(domain_1, domain_2):
 
     result = simplify_ranges(result)
     return result
-
 class Range:
     def __init__(self, r=[True], p=[], z=[]):
         self.r = r
         self.p = p
         self.z = z
+        self.do = True
         
-        self.fix()
-        
+    def unfix(self):
+        self.do = False
+        return self
     def fix(self):
+        if not self.do:
+            return
         def simplify_ranges(ranges):
             simplified_ranges = []
             i = 0
@@ -188,27 +191,28 @@ class Range:
                     simplified_ranges.append(ranges[i])
                     i += 1
             return simplified_ranges
+        
         self.r = simplify_ranges(self.r)
         
-        self.p = list(set(self.p) - set(intersection2(self.r, self.p)))
         common = set(self.p) & set(self.z)
-        self.z = set(self.z) - common
-        self.p = set(self.p) - common
+        self.z = list(set(self.z) - common)
+        self.p = list(set(self.p) - common)
         
-        self.z = set(intersection2(self.r, list(self.z)))
+        self.p = list(set(self.p) - set(intersection2(self.r, self.p)))
+        self.z = list(set(intersection2(self.r, self.z)))
+        return self
         
-        self.p, self.z = list(self.p), list(self.z)
     def __or__(self, other):
-        a = flip_less_than(intersection(flip_less_than(self.r), flip_less_than(other.r)))
-        b = list(set(self.p+other.p))
-        b = set(b) - set(intersection2(a, b))
-        return Range(a, list(b))
+        return (self.unfix().__invert__().unfix() & other.unfix().__invert__().unfix()).unfix().__invert__().fix()
     def __invert__(self):
-        
-        return Range(flip_less_than(self.r), self.z, self.p)
+        tmp =  Range(flip_less_than(self.r), self.z, list(set(self.p)-set(self.z)))
+        return tmp
     def __and__(self, other):
-        
-        return Range(intersection(self.r, other.r), list(set(list(set(self.p)&set(other.p))+intersection2(self.r, other.p)+intersection2(other.r, self.p))))
+        a = intersection(self.r, other.r)
+        b = intersection2(self.r, other.p)
+        c = intersection2(other.r, self.p)
+        tmp = Range(a, list(set(b)|set(c)|(set(self.p)&set(other.p))), list(set(self.z)|set(other.z)))
+        return tmp
     def __str__(self):
         out = []
         out2 = ""
@@ -271,7 +275,7 @@ def int2(string):
 def flatten_tree(node):
     if not node.children:
         return node
-    if node.name in ("f_add", "f_mul", "f_and", "f_or"):
+    if node.name in ("f_add", "f_mul", "f_and", "f_or", "f_intersection", "f_union"):
         merged_children = []
         for child in node.children:
             flattened_child = flatten_tree(child)
@@ -682,7 +686,8 @@ def inversehandle(eq):
         for child in eq.children[0].children:
             ans.children.append(copy.deepcopy(TreeNode("f_pow", [child, exponent])))
         return inversehandle(ans)
-    
+    if eq.name == "f_pow" and eq.children[0].name == "d_0" and eq.children[1].name != "d_0":
+        return tree_form("d_0")
     if eq.name == "f_log10":
         return inversehandle(eq.children[0].fx("log")/tree_form("d_10").fx("log"))
     if eq.name == "f_log" and eq.children[0].name == "s_e":
@@ -925,7 +930,14 @@ def like_term_linear(eq):
         s.append(tree_form(key)*var[key])
     s.append(eq2)
     return summation([solve(item) for item in s])
-        
+
+def remove_duplicates_custom(lst, rcustom):
+    result = []
+    for item in lst:
+        if not any(rcustom(item, x) for x in result):
+            result.append(item)
+    return result
+     
 def decompose2(eq, v):
     if eq.name != "f_mul":
         return eq
@@ -939,12 +951,7 @@ def decompose2(eq, v):
         return True
     if not exclude(eq):
         return eq
-    def remove_duplicates_custom(lst, rcustom):
-        result = []
-        for item in lst:
-            if not any(rcustom(item, x) for x in result):
-                result.append(item)
-        return result
+    
     def countfac(lst, eq):
         count=0
         for item in lst:
@@ -1392,6 +1399,191 @@ def expand2(eq):
                 add = dowhile(add, simplifylite)
             eq = copy.deepcopy(add)
     return TreeNode(eq.name, [expand2(child) for child in eq.children])
+def make_simple(eq):
+    if eq.name in ["f_exist", "f_forall"]:
+        return TreeNode(eq.name, [eq.children[0], make_simple(eq.children[1])])
+    if eq.name not in ["f_intersection", "f_union", "f_exclude", "f_imply", "f_equiv"]:
+        return eq
+    def convv(eq):
+        if eq == tree_form("s_all"):
+            return True
+        if eq == tree_form("s_null"):
+            return False
+        return None
+    def conv2(val):
+        if val:
+            return tree_form("s_all")
+        return tree_form("s_null")
+    if all(convv(child) is not None for child in eq.children):
+        if eq.name == "f_exclude":
+            return conv2(not convv(eq.children[0]))
+        elif eq.name == "f_union":
+            return conv2(convv(eq.children[0]) or convv(eq.children[1]))
+        elif eq.name == "f_intersection":
+            return conv2(convv(eq.children[0]) and convv(eq.children[1]))
+    if eq == tree_form("s_null").fx("exclude"):
+        return tree_form("s_all")
+    if eq.name == "f_exclude":
+        if eq.children[0].name == "f_exclude":
+            return eq.children[0].children[0]
+        elif eq.children[0].name in ["f_union", "f_intersection"]:
+            out = TreeNode({"f_union":"f_intersection", "f_intersection":"f_union"}[eq.children[0].name], [])
+            for child in eq.children[0].children:
+                out.children.append(child.fx("exclude"))
+            return out
+    if eq.name in ["f_intersection", "f_union"]:
+        for i in range(len(eq.children)):
+            for j in range(len(eq.children)):
+                if i ==j:
+                    continue
+                if eq.children[i] == eq.children[j].fx("exclude"):
+                    eq2 = copy.deepcopy(eq)
+                    eq2.children.pop(max(i, j))
+                    eq2.children.pop(min(i, j))
+                    eq2.children.append({"f_union":tree_form("s_all"), "f_intersection":tree_form("s_null")}[eq.name])
+                    if len(eq2.children) == 1:
+                        return eq2.children[0]
+                    return eq2
+    if eq.name in ["f_intersection", "f_union"]:
+        for i in range(len(eq.children)):
+            if eq.children[i] == tree_form("s_null"):
+                eq2 = copy.deepcopy(eq)
+                eq2.children.pop(i)
+                if eq.name == "f_intersection":
+                    return tree_form("s_null")
+                if len(eq2.children) == 1:
+                    return eq2.children[0]
+                return eq2
+            elif eq.children[i] == tree_form("s_all"):
+                eq2 = copy.deepcopy(eq)
+                eq2.children.pop(i)
+                if eq.name == "f_union":
+                    return tree_form("s_all")
+                if len(eq2.children) == 1:
+                    return eq2.children[0]
+                return eq2
+    if eq.name in ["f_intersection", "f_union"]:
+        lst = remove_duplicates_custom(eq.children, lambda x,y: x==y)
+        if len(lst) < len(eq.children):
+            if len(lst) == 1:
+                return lst[0]
+            return TreeNode(eq.name, lst)
+    
+    if eq.name in ["f_intersection", "f_union"] and any(child.children is not None and len(child.children)!=0 for child in eq.children):
+        for i in range(len(eq.children),1,-1):
+            for item in itertools.combinations(enumerate(eq.children), i):
+                op = "f_intersection"
+                if eq.name == "f_intersection":
+                    op = "f_union"
+                item3 = []
+                for item4 in item:
+                    item3.append(item4[0])
+                item5 = []
+                for item4 in item:
+                    item5.append(item4[1])
+                item = item5
+                out = None
+                for j in range(len(item)):
+                    out = set(item[j].children)
+                    for item2 in item:
+                        if item2.name == op:
+                            out = out & set(item2.children)
+                        else:
+                            out = out & set([item2])
+                    if out == set(item[j].children):
+                        break
+                    out = None
+                if out is None:
+                    continue
+                out = list(out)
+                if out == []:
+                    continue
+                if len(out) != 1:
+                    out = [TreeNode(op, out)]
+                for item4 in list(set(range(len(eq.children))) - set(item3)):
+                    out.append(eq.children[item4])
+                if len(out) == 1:
+                    return out[0]
+                output = flatten_tree(TreeNode(eq.name, out))
+                return output
+    return TreeNode(eq.name, [flatten_tree(make_simple(child)) for child in eq.children])
+def logicconv(eq):
+    if eq.name == "f_and":
+        return logicconv(TreeNode("f_intersection", eq.children))
+    elif eq.name == "f_or":
+        return logicconv(TreeNode("f_union", eq.children))
+    elif eq.name == "f_not":
+        return logicconv(TreeNode("f_exclude", eq.children))
+    else:
+        return TreeNode(eq.name, [logicconv(child) for child in eq.children])
+def logicconv2(eq):
+    if eq.name == "f_intersection":
+        return logicconv2(TreeNode("f_and", eq.children))
+    elif eq.name == "f_union":
+        return logicconv2(TreeNode("f_or", eq.children))
+    elif eq.name == "f_exclude":
+        return logicconv2(TreeNode("f_not", eq.children))
+    else:
+        return TreeNode(eq.name, [logicconv2(child) for child in eq.children])
+def expand5(eq):
+    if eq.name in ["f_exist", "f_forall"]:
+        return TreeNode(eq.name, [eq.children[0], expand5(eq.children[1])])
+    if eq.name not in ["f_intersection", "f_union", "f_exclude", "f_imply", "f_equiv"]:
+        return eq
+    if eq.name == "f_equiv":
+        A, B = eq.children
+        A, B = expand5(A), expand5(B)
+        A, B = dowhile(A, make_simple), dowhile(B, make_simple)
+        return flatten_tree(logicconv((A & B) | (A.fx("not") & B.fx("not"))))
+    if eq.name == "f_imply":
+        A, B = eq.children
+        A, B = expand5(A), expand5(B)
+        A, B = dowhile(A, make_simple), dowhile(B, make_simple)
+        return flatten_tree(logicconv(A.fx("not") | B))
+    eq = flatten_tree(eq)
+    
+    if len(eq.children) > 2:
+        lst = []
+        l = len(eq.children)
+        if l % 2 == 1:
+            l = l - 1
+            lst.append(eq.children[-1])
+        for i in range(0,l,2):
+            out = expand5(TreeNode(eq.name, eq.children[i:i+2]))
+            out = dowhile(out, make_simple)
+            lst.append(out)
+        lst = TreeNode(eq.name, lst)
+        lst = expand5(flatten_tree(lst))
+        return lst
+    if eq.name == "f_intersection":
+        lst= []
+        for child in eq.children:
+            if child.name == "f_union":
+                lst.append(child.children)
+            else:
+                lst.append([child])
+        out = TreeNode("f_union", [])
+        for item in itertools.product(*lst):
+            c = TreeNode("f_intersection", list(item))
+            out.children.append(c)
+        if len(out.children) == 1:
+            out = out.children[0]
+        eq = flatten_tree(out)
+    elif eq.name == "f_union":
+        lst= []
+        for child in eq.children:
+            if child.name == "f_intersection":
+                lst.append(child.children)
+            else:
+                lst.append([child])
+        out = TreeNode("f_intersection", [])
+        for item in itertools.product(*lst):
+            c = TreeNode("f_union", list(item))
+            out.children.append(c)
+        if len(out.children) == 1:
+            out = out.children[0]
+        eq = flatten_tree(out)
+    return TreeNode(eq.name, [expand5(child) for child in eq.children])
 def numdem(equation):
     num = tree_form("d_1")
     den = tree_form("d_1")
@@ -1886,7 +2078,7 @@ def integrate_for(eq, var):
             
             return tree_form("d_-1")*eq.children[0].fx("cos")/tmp
     return None
-def integratex(equation, depth, var, data, bypart, sp, su):
+def integratex(equation, depth, var, data, bypart, sp, su, rewrite=True):
     if var not in ["v_0", "v_1", "v_2", "v_3"]:
         return None
     if depth <= 0:
@@ -1902,17 +2094,18 @@ def integratex(equation, depth, var, data, bypart, sp, su):
     
     if not contain(equation, tree_form(var)):
         return tree_form(var)*equation
-    
-    out = sqint(equation, depth, var, data+[special], bypart, sp, su)
-    if out is not None:
-        out = expand3(solve(out))
-        return out
-    equation = solve(factorx31(equation))
-    equation = solve(quadratic(equation, True))
-    
-    
-    equation = decompose(equation, var)
-    plog(f"{'  '*tab}rewriting as {str(equation)}")
+
+    if rewrite:
+        out = sqint(equation, depth, var, data+[special], bypart, sp, su)
+        if out is not None:
+            out = expand3(solve(out))
+            return out
+        equation = solve(factorx31(equation))
+        equation = solve(quadratic(equation, True))
+        
+        
+        equation = decompose(equation, var)
+        plog(f"{'  '*tab}rewriting as {str(equation)}")
     
     eq2 = copy.deepcopy(equation)
     const = [x for x in factorgen(eq2) if var not in str_form(x)]
@@ -2219,6 +2412,17 @@ def clearv(eq, varname=None):
         for child in eq.children:
             out += vlist(child)
         return sorted(list(set(out)), key=lambda x: int(x[2:]))
+    if eq.name in ["f_lt", "f_gt", "f_eq", "f_le", "f_ge"]:
+        
+        if eq.children[0].name == "f_mul":
+            for i in range(len(eq.children[0].children)-1,-1,-1):
+                if eq.children[0].children[i].name[:2] == "d_":
+                    n = int(eq.children[0].children[i].name[2:])
+                    if n < 0:
+                        eq.name= {"f_lt":"f_gt", "f_gt":"f_lt", "f_eq":"f_eq", "f_le":"f_ge", "f_ge":"f_le"}[eq.name]
+                    eq.children[0].children.pop(i)
+        if len(eq.children[0].children) == 1:
+            eq.children[0] = eq.children[0].children[0]
     if eq.name in ["f_eq"]:
         equation=eq.children[0]
         arr = None
@@ -3999,12 +4203,46 @@ def calcvec(eq):
     for item in lst:
         eq2 = replace(eq2, item[0], item[1])
     return eq2
-
+def handlesum(eq):
+    if eq.name == "f_variance":
+        a = TreeNode("f_index", [eq.children[0], parser.take_input("i")])
+        b = TreeNode("f_index", [eq.children[0], parser.take_input("j")])
+        inner = TreeNode("f_sum2", [TreeNode("f_covariance", [a,b]), parser.take_input("1"), eq.children[0].fx("len"), parser.take_input("i"), parser.take_input("j")])
+        outer = TreeNode("f_sum", [inner, parser.take_input("1"), eq.children[0].fx("len"), parser.take_input("i")])
+        return TreeNode("f_sum", [a.fx("variance"), parser.take_input("1"), eq.children[0].fx("len"), parser.take_input("i")]) + outer
+    if eq.name == "f_covariance":
+        a = TreeNode("f_index", [eq.children[0], parser.take_input("i")])
+        b = TreeNode("f_index", [eq.children[1], parser.take_input("j")])
+        inner = TreeNode("f_sum", [TreeNode("f_covariance", [a,b]), parser.take_input("1"), eq.children[1].fx("len"), parser.take_input("j")])
+        outer = TreeNode("f_sum", [inner, parser.take_input("1"), eq.children[0].fx("len"), parser.take_input("i")])
+        return outer        
+    return TreeNode(eq.name, [handlesum(child) for child in eq.children])
+def logic2(eq):
+    '''
+    if eq.name == "f_exclude" and eq.children[0].name == "f_forall":
+        return TreeNode("f_exist", [eq.children[0].children[0], eq.children[0].children[1].fx("exclude")])
+    '''
+    if eq.name == "f_forall" and eq.children[1] in [tree_form("s_all"), tree_form("s_null")]:
+        return eq.children[1]
+    if eq.name == "f_exclude" and eq.children[0].name == "f_exist":
+        return TreeNode("f_forall", [eq.children[0].children[0], eq.children[0].children[1].fx("exclude")])
+    if eq.name == "f_exist" and eq.children[1].name == "f_union":
+        return TreeNode("f_union", [TreeNode("f_exist", [eq.children[0], child]) for child in eq.children[1].children])
+    if eq.name == "f_forall" and eq.children[1].name == "f_intersection":
+        return TreeNode("f_intersection", [TreeNode("f_forall", [eq.children[0], child]) for child in eq.children[1].children])
+    if eq.name == "f_exist":
+        return TreeNode("f_forall", [eq.children[0], eq.children[1].fx("exclude")]).fx("exclude")
+    return TreeNode(eq.name, [logic2(child) for child in eq.children])
 def mul_abs(eq):
     if eq.name == "f_abs" and eq.children[0].name == "f_mul":
         return solve(product([item.fx("abs") for item in factorgen(eq.children[0])]))
     return TreeNode(eq.name, [mul_abs(child) for child in eq.children])
-
+def ss(eq):
+    if eq.name == "f_abs" and eq.children[0].name[:2]=="d_":
+        if int(eq.children[0].name[2:])>0:
+            return eq.children[0]
+        return -eq.children[0]
+    return TreeNode(eq.name, [ss(child) for child in eq.children])
 ggg = """mode spherical
 (1/(pi * anot^3))^(1/2)
 physics
@@ -4094,6 +4332,8 @@ while cmd_mode and True:
             
             print(equation)
         elif tmp == "wavycurvy":
+            
+            equation = logicconv2(equation)
             def remove_duplicates(data, are_duplicates):
                 result = []
                 for item in data:
@@ -4106,12 +4346,47 @@ while cmd_mode and True:
                 
             else:
                 ra = wavy(equation)
-                
+            equation = logicconv(equation)
             print(ra)
         elif tmp == "physics":
             equation = physics(equation)
             print(equation)
+        elif tmp == "abs2":
+            equation = mul_abs(equation)
+            
+            def collectabs(eq):
+                out = []
+                if eq.name == "f_abs":
+                    out.append(eq.children[0])
+                for child in eq.children:
+                    out += collectabs(child)
+                return out
+            def abc(eq, arr):
+            
+                def trans(eq):
+                    nonlocal arr
+                    out = {}
+                    if eq.name == "f_abs":
+                        x = arr.pop(0)
+                        if x == 0:
+                            return eq.children[0]
+                        else:
+                            return -eq.children[0]
+                    return TreeNode(eq.name, [trans(child) for child in eq.children])
+                return trans(eq)
+            out = list(set(collectabs(equation)))
+            out2 = []
+            for item in itertools.product([0,1,2], repeat=len(out)):
+                out3 = []
+                for i in range(len(item)):
+                    out3.append(TreeNode({0:"f_gt", 1:"f_lt", 2:"f_eq"}[item[i]], [out[i], tree_form("d_0")]))
+                out3 = TreeNode("f_and", out3+[abc(copy.deepcopy(equation), list(item))])
+                out2.append(out3)
+            out2 = TreeNode("f_or", out2)
+            equation=  logicconv(out2)
+            print(equation)
         elif tmp == "abs":
+            equation = ss(equation)
             equation = mul_abs(equation)
             
             def collectabs(eq):
@@ -4195,6 +4470,44 @@ while cmd_mode and True:
                  equation = expand2(equation)
              equation = solve(equation)
              print(equation)
+        elif tmp == "logic2":
+             equation = dowhile(equation, logic2)
+             print(equation)
+        elif tmp == "logic1":
+             def conclude(eq):
+                 if eq.children is None or len(eq.children)==0:
+                     return eq
+                 if eq.name in ["f_eq", "f_lt", "f_gt" "f_ge"] and eq.children[1].name[:2]=="d_" and eq.children[0].name[:2]=="d_":
+                    a, b = int(eq.children[0].name[2:]), int(eq.children[1].name[2:])
+                    if eq.name == "f_eq":
+                        return tree_form("s_all") if a==b else tree_form("s_null")
+                    if eq.name == "f_ge":
+                        return tree_form("s_all") if a>=b else tree_form("s_null")
+                    if eq.name == "f_lt":
+                        return tree_form("s_all") if a < b else tree_form("s_null")
+                 if eq.name == "f_ge":
+                    return TreeNode("f_gt", eq.children) | TreeNode("f_eq", eq.children)
+
+                 if eq.name == "f_gt":
+                    return TreeNode("f_lt", eq.children).fx("exclude") & TreeNode("f_eq", eq.children).fx("exclude")
+
+                 if eq.name == "f_le":
+                    return TreeNode("f_lt", eq.children) | TreeNode("f_eq", eq.children)
+                 return TreeNode(eq.name, [conclude(child) for child in eq.children])
+             equation = dowhile(equation, conclude)
+             equation = logicconv(equation)
+             equation=  dowhile(equation, make_simple)
+             print(equation)
+        elif tmp == "logic":
+             equation = logicconv(equation)
+             equation=  dowhile(equation, make_simple)
+             if equation.name == "f_eq":
+                 eq2 = copy.deepcopy(equation.children[1])
+                 equation = TreeNode("f_eq", [expand5(e1(equation), equation.children[0].name), eq2])
+             else:
+                 equation = expand5(equation)
+             equation=  dowhile(equation, make_simple)
+             print(equation)
         elif tmp == "simplify":
              equation = clearv(equation)
              equation = solve(equation)
@@ -4232,7 +4545,7 @@ while cmd_mode and True:
                         equation = formula_3(equation)
                     return equation
                 return TreeNode(equation.name, [command(child) for child in equation.children])
-            if equation.name == "f_add":
+            if equation.name in ["f_eq", "f_add"]:
                 equation = solve(command(equation))
             else:
                 equation = solve(replace_eq3(equation))
@@ -4271,6 +4584,7 @@ while cmd_mode and True:
                 var = {"x":"v_0", "y":"v_1", "z":"v_2", "c": "v_5"}[tmp[2]]
             special = TreeNode("f_int", [equation, tree_form(var)])
             su, sp, bypart = True, False, False
+            rewrite = False
             if "byparts" in tmp:
                 bypart = True
                 su = False
@@ -4278,12 +4592,14 @@ while cmd_mode and True:
                 su = True
             if "graph" in tmp:
                 sp = True
+            if "rewrite" in tmp:
+                rewrite = True
             n = 4
             try:
                 n = int(tmp.split(" ")[-1])
             except:
                 pass
-            tmp2 = integratex(equation, n, var, [], bypart, sp, su)
+            tmp2 = integratex(equation, n, var, [], bypart, sp, su, rewrite)
             tmp2 = handle_intrec(special, tmp2)
             tmp2 = solve(expand2(tmp2))
             plog(f"{'  '*tab}the solution is {str(tmp2)}\n")
@@ -4370,6 +4686,9 @@ while cmd_mode and True:
             coordinate = "sphere"
         elif tmp == "pdifsolve":
             pdifsolve(equation)
+        elif tmp == "psych1":
+            equation = handlesum(equation)
+            print(equation)
         elif tmp == "calcvec":
             
             if equation.name == "f_eq":
@@ -4379,6 +4698,7 @@ while cmd_mode and True:
             print(equation)
         else:
             out = parser.take_input(tmp)
+            
             out = rmdeg(out)
             #out = normal(tmp, copy.deepcopy(variable))
             equation = solve(bridge(out))
@@ -4387,8 +4707,12 @@ while cmd_mode and True:
                 if len(item.children)==2 and item.name == "f_eq":
                     equation = replace(equation, tree_form("d_"+str(index)).fx("equationlhs"), item.children[0])
                     equation = replace(equation, tree_form("d_"+str(index)).fx("equationrhs"), item.children[1])
+            
             history.append(equation)
             print("EQUATION "+str(len(history)-1) + " : " + str(equation))
+        equation = logicconv(equation)
+        
+        
         if tmp.split(" ")[0] != "mode" or tmp in ["pdifsolve"]:
             history[-1] = equation
     '''
@@ -4396,4 +4720,3 @@ while cmd_mode and True:
         equation = orig
         print(error)
     '''
-
