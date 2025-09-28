@@ -1,9 +1,10 @@
 import sys
 import os
+import time
 from mathai import *
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# --- Increase recursion limit for deep symbolic tasks ---
+# --- Increase recursion limit ---
 sys.setrecursionlimit(10000)
 
 # --- Mathai functions ---
@@ -55,22 +56,22 @@ def run_task(task):
         result = str(e)
     return item, result
 
-# --- Parallel execution using all cores ---
+# --- Batch execution ---
 if __name__ == "__main__":
-    num_cores = os.cpu_count()  # detect available cores
-    print(f"Running tasks in parallel on {num_cores} cores with recursion limit = {sys.getrecursionlimit()}\n")
+    num_cores = os.cpu_count()
+    print(f"Running tasks in batches of {num_cores} (one task per core)...")
     
-    # Store results in original order
-    results = [None] * len(all_tasks)
+    start_time = time.time()
+    results = []
 
-    with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        # Map each task to a future
-        future_to_index = {executor.submit(run_task, task): idx for idx, task in enumerate(all_tasks)}
-        for future in as_completed(future_to_index):
-            idx = future_to_index[future]
-            item, result = future.result()
-            results[idx] = (item, result)
-
-    # Print results in original task order
-    for item, result in results:
-        print(f"{item}  =>  {result}")
+    # Process tasks in batches
+    for i in range(0, len(all_tasks), num_cores):
+        batch = all_tasks[i:i+num_cores]  # next batch
+        with ProcessPoolExecutor(max_workers=num_cores) as executor:
+            futures = {executor.submit(run_task, task): task for task in batch}
+            for future in as_completed(futures):
+                item, result = future.result()
+                results.append((item, result))
+    
+    total_time = time.time() - start_time
+    print(f"\nAll tasks completed in {total_time:.2f} seconds")
