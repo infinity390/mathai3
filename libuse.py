@@ -1,4 +1,5 @@
 import sys
+import os
 from mathai import *
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -27,34 +28,21 @@ def trig_basic(item):
 def trig_advanced(item):
     return logic0(simplify(trig0(trig1(trig4(simplify(fraction(trig0(simplify(parse(item))))))))))
 
-# --- All tasks flattened into a single list ---
+# --- All tasks ---
 all_tasks = [
-    # Advanced trigonometry first
     *[(item, trig_advanced) for item in [
         "cos(x)/(1+sin(x)) + (1+sin(x))/cos(x) = 2*sec(x)",
         "(1+sec(x))/sec(x) = sin(x)^2/(1-cos(x))"
     ]],
-    
-    # integration by parts
     *[(item, integration_byparts) for item in ["sin(x)*x", "x*sin(3*x)", "x*log(abs(x))", "arctan(x)"]],
-    
-    # partial fractions
     *[(item, integration_apart) for item in ["x/((x+1)*(x+2))", "1/(x^2-9)"]],
-    
-    # direct integration
     *[(item, integration_direct) for item in [
         "x*sqrt(x+2)", "sin(cos(x))*sin(x)", "2*x/(1+x^2)",
         "sqrt(a*x+b)", "cos(sqrt(x))/sqrt(x)",
         "e^(arctan(x))/(1+x^2)", "sqrt(sin(2*x))*cos(2*x)"
     ]],
-    
-    # trig integration
     *[(item, integration_trig) for item in ["sin(2*x+5)^2", "sin(x)^4", "cos(2*x)^4"]],
-    
-    # algebra
     *[(item, algebra) for item in ["(x+1)^2 = x^2+2*x+1", "(x+1)*(x-1) = x^2-1"]],
-    
-    # trig basic
     *[(item, trig_basic) for item in ["2*sin(x)*cos(x)=sin(2*x)"]],
 ]
 
@@ -67,13 +55,22 @@ def run_task(task):
         result = str(e)
     return item, result
 
-# --- Parallel execution ---
+# --- Parallel execution using all cores ---
 if __name__ == "__main__":
-    print("Running tasks in parallel with recursion limit =", sys.getrecursionlimit(), "\n")
-    results = []
-    with ProcessPoolExecutor() as executor:
-        future_to_task = {executor.submit(run_task, task): task for task in all_tasks}
-        for future in as_completed(future_to_task):
+    num_cores = os.cpu_count()  # detect available cores
+    print(f"Running tasks in parallel on {num_cores} cores with recursion limit = {sys.getrecursionlimit()}\n")
+    
+    # Store results in original order
+    results = [None] * len(all_tasks)
+
+    with ProcessPoolExecutor(max_workers=num_cores) as executor:
+        # Map each task to a future
+        future_to_index = {executor.submit(run_task, task): idx for idx, task in enumerate(all_tasks)}
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
             item, result = future.result()
-            results.append((item, result))
-            print(f"{item}  =>  {result}")
+            results[idx] = (item, result)
+
+    # Print results in original task order
+    for item, result in results:
+        print(f"{item}  =>  {result}")
