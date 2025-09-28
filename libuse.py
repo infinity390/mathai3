@@ -56,21 +56,21 @@ def run_task(task):
         result = str(e)
     return item, result
 
-# --- Batch execution ---
+# --- Parallel execution without waiting for batch ---
 if __name__ == "__main__":
     num_cores = os.cpu_count()
-    print(f"Running tasks in batches of {num_cores} (one task per core)...\n")
+    print(f"Running {len(all_tasks)} tasks asynchronously on {num_cores} cores...\n")
     
     start_time = time.time()
 
-    # Process tasks in batches
-    for i in range(0, len(all_tasks), num_cores):
-        batch = all_tasks[i:i+num_cores]  # next batch
-        with ProcessPoolExecutor(max_workers=num_cores) as executor:
-            futures = {executor.submit(run_task, task): task for task in batch}
-            for future in as_completed(futures):
-                item, result = future.result()
-                print(f"{item}  =>  {result}\n")
+    with ProcessPoolExecutor(max_workers=num_cores) as executor:
+        # Submit all tasks at once
+        futures = [executor.submit(run_task, task) for task in all_tasks]
+
+        # Print results as soon as a task finishes
+        for future in as_completed(futures):
+            item, result = future.result()
+            print(f"{item}  =>  {result}\n")
 
     total_time = time.time() - start_time
     print(f"All tasks completed in {total_time:.2f} seconds")
