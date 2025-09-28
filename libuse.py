@@ -59,10 +59,9 @@ def run_task(task):
 # --- Batch execution ---
 if __name__ == "__main__":
     num_cores = os.cpu_count()
-    print(f"Running tasks in batches of {num_cores} (one task per core)...")
+    print(f"Running tasks in batches of {num_cores} (one task per core)...\n")
     
     start_time = time.time()
-    results = []
 
     # Process tasks in batches
     for i in range(0, len(all_tasks), num_cores):
@@ -71,7 +70,7 @@ if __name__ == "__main__":
             futures = {executor.submit(run_task, task): task for task in batch}
             for future in as_completed(futures):
                 item, result = future.result()
-                results.append((item, result))
-    
+                print(f"{item}  =>  {result}\n")
+
     total_time = time.time() - start_time
-    print(f"\nAll tasks completed in {total_time:.2f} seconds")
+    print(f"All tasks completed in {total_time:.2f} seconds")
